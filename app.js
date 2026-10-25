@@ -809,8 +809,9 @@ function viewSpace(sp) {
   const ed = ui.editing, goal = goalOf(sp);
   const tr = trend(sp.id), td = spaceDay(sp.id, ui.date);
   const head = ed
-    ? `<div class="head"><span class="icon-now" style="--sc:${spaceColor(sp)}">${ico(iconName(sp), 26)}</span><input class="txt-in" style="font-size:24px;font-weight:700" data-f="spaceName" data-space="${sp.id}" value="${esc(sp.name)}" aria-label="Space name"></div>
-       <div class="icon-pick" role="radiogroup" aria-label="Icon">${SPACE_ICONS.map(n => `<button class="icon-opt${iconName(sp) === n ? ' on' : ''}" data-act="setIcon" data-space="${sp.id}" data-v="${n}" role="radio" aria-checked="${iconName(sp) === n}" aria-label="${n}" title="${n}">${ico(n, 20)}</button>`).join('')}</div>
+    ? `<div class="head"><div class="icon-wrap"><button class="icon-now" style="--sc:${spaceColor(sp)}" data-act="iconMenu" aria-haspopup="true" aria-expanded="${!!ui.iconMenu}" aria-label="Change icon" title="Change icon">${ico(iconName(sp), 26)}</button>
+         ${ui.iconMenu ? `<div class="icon-pop glass" data-glass data-bezel="18" data-scale="34" data-gblur="10" role="radiogroup" aria-label="Icon">${SPACE_ICONS.map(n => `<button class="icon-opt${iconName(sp) === n ? ' on' : ''}" data-act="setIcon" data-space="${sp.id}" data-v="${n}" role="radio" aria-checked="${iconName(sp) === n}" aria-label="${n}" title="${n}">${ico(n, 20)}</button>`).join('')}</div>` : ''}</div>
+         <input class="txt-in" style="font-size:24px;font-weight:700" data-f="spaceName" data-space="${sp.id}" value="${esc(sp.name)}" aria-label="Space name"></div>
        <div class="row" style="margin-bottom:16px"><label class="field-inline">Daily goal <select class="sel" data-f="spaceGoal" data-space="${sp.id}">${[50, 60, 70, 80, 90, 100].map(g => `<option value="${g}"${g === goal ? ' selected' : ''}>${g}%</option>`).join('')}</select></label><span class="badge">Mark items Optional and they will not count against your goal</span></div>`
     : `<a class="back" href="#/home">‹ Home</a>
        <div class="head"><div class="grow"><h1 class="with-icon">${ico(iconName(sp), 36)}${esc(sp.name)}</h1><div class="sub">${esc(fmt(ui.date, { weekday: 'long', month: 'long', day: 'numeric' }))}</div></div></div>
@@ -1058,6 +1059,8 @@ function moveIn(arr, idx, n) {
 }
 
 document.addEventListener('click', e => {
+  // Tapping anywhere outside the icon menu closes it.
+  if (ui.iconMenu && !e.target.closest('.icon-pop, [data-act="iconMenu"]')) { ui.iconMenu = false; render(); }
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const d = el.dataset;
@@ -1080,7 +1083,8 @@ document.addEventListener('click', e => {
     case 'removeBg': localStorage.removeItem(BG_KEY); if (state.theme.bg === 'image') state.theme.bg = 'none'; state.theme.imgLuma = null; save(); applyTheme(); render(); refreshSheet(); break;
     case 'toggleOptional': if (item.optional) delete item.optional; else item.optional = true; save(); render(); break;
     case 'style': openCustomize(); break;
-    case 'setIcon': spaceById(d.space).icon = d.v; save(); render(); break;
+    case 'iconMenu': ui.iconMenu = !ui.iconMenu; render(); break;
+    case 'setIcon': spaceById(d.space).icon = d.v; ui.iconMenu = false; save(); render(); break;
     case 'linkAdd': if (addLink(d.space, $('#ql-title').value, $('#ql-url').value)) break; break;
     case 'linkSuggest': addLink(d.space, d.t, d.u); break;
     case 'linkDel': { const sp = spaceById(d.space); sp.links = sp.links.filter(l => l.id !== d.link); save(); render(); break; }
@@ -1323,7 +1327,7 @@ function route() {
   const [view, arg] = h.split('/');
   if (view === 'space' && ui.editNext === arg) ui.editing = true; // a brand-new blank space opens ready to edit
   else if (view !== 'space' || ui.arg !== arg) ui.editing = false;
-  ui.editNext = null;
+  ui.editNext = null; ui.iconMenu = false;
   ui.view = view; ui.arg = arg || null;
   if (view === 'home') ui.date = todayKey();
   render();

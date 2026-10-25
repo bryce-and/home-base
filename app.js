@@ -442,7 +442,7 @@ function addLink(spaceId, title, rawUrl) {
   const url = normUrl(rawUrl);
   if (!url) { toast('Enter a valid web address, like slack.com'); return false; }
   const sp = spaceById(spaceId);
-  sp.links.push({ id: uid(), title: title.trim() || new URL(url).hostname.replace(/^www\./, ''), url });
+  (sp.links ??= []).push({ id: uid(), title: title.trim() || new URL(url).hostname.replace(/^www\./, ''), url });
   save(); ui.focus = '#ql-title'; render();
   return true;
 }
@@ -452,6 +452,7 @@ function linksView(sp) {
   return `<div class="qlinks" aria-label="Quick links">${sp.links.map(l => `<a class="qlink glass" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><span class="qdot" style="background:${c};color:${readableOn(c)}">${esc((l.title[0] || '•').toUpperCase())}</span>${esc(l.title)}<span class="qarrow" aria-hidden="true">↗</span></a>`).join('')}</div>`;
 }
 function linksEditor(sp) {
+  sp.links ??= [];
   const have = new Set(sp.links.map(l => l.title.toLowerCase()));
   return `<section class="card"><div class="card-head"><h3>Quick links</h3><span class="badge">Open in a new tab from this page</span></div>
     ${sp.links.map(l => `<div class="ql-row">
@@ -482,7 +483,7 @@ function buildShare(spaceIds) {
 function importShare(payload, mode) {
   if (payload?.app !== 'homebase' || !Array.isArray(payload.spaces) || !Array.isArray(payload.lists)) throw new Error('That does not look like a Home Base setup.');
   const map = {};
-  const spaces = payload.spaces.map(s => { const id = uid(); map[s.id] = id; return { id, name: String(s.name || 'Space'), icon: iconName(s), goal: Number(s.goal) || 80 }; });
+  const spaces = payload.spaces.map(s => { const id = uid(); map[s.id] = id; return { id, name: String(s.name || 'Space'), icon: iconName(s), goal: Number(s.goal) || 80, links: [] }; });
   const lists = instantiateLists(null, []).concat(payload.lists.filter(l => map[l.spaceId]).flatMap(l => instantiateLists(map[l.spaceId], [l])));
   if (mode === 'replace') {
     const inbox = state.lists.find(l => l.id === 'inbox');
@@ -497,13 +498,19 @@ function importShare(payload, mode) {
 function render() {
   renderNav();
   let html;
-  switch (ui.view) {
-    case 'week': html = viewWeek(); break;
-    case 'today': html = viewToday(); break;
-    case 'settings': html = viewSettings(); break;
-    case 'space': if (spaceById(ui.arg)) { html = viewSpace(spaceById(ui.arg)); break; }
-    // falls through: unknown space goes home
-    default: ui.view = 'home'; html = viewHome();
+  try {
+    switch (ui.view) {
+      case 'week': html = viewWeek(); break;
+      case 'today': html = viewToday(); break;
+      case 'settings': html = viewSettings(); break;
+      case 'space': if (spaceById(ui.arg)) { html = viewSpace(spaceById(ui.arg)); break; }
+      // falls through: unknown space goes home
+      default: ui.view = 'home'; html = viewHome();
+    }
+  } catch (err) {
+    // Never leave a half-drawn page with dead buttons: say what broke, then let it surface in the console.
+    toast('Something went wrong drawing this page: ' + err.message);
+    throw err;
   }
   $('#main').innerHTML = html;
   $('#main').dataset.view = ui.view;
@@ -699,7 +706,7 @@ function viewHome() {
     <div class="score-side">
       <div class="score-title">Today's score</div>
       <div class="score-sub">${all.total ? `${all.done} of ${all.total} required tasks` : 'No required tasks yet'}</div>
-      <div class="legend">${rows.map(({ sp, td, color }) => `<a class="legend-row" href="#/space/${sp.id}"><span class="dot" style="background:${color};color:${color}"></span><span class="ln">${esc(sp.name)}</span>${td.total ? `<span class="lc">${td.done}/${td.total}</span><b>${td.pct}%</b>` : '<span class="lc">No daily tasks</span><b>–</b>'}</a>`).join('')}</div>
+      <div class="legend">${rows.filter(r => r.td.total > 0).map(({ sp, td, color }) => `<a class="legend-row" href="#/space/${sp.id}"><span class="dot" style="background:${color};color:${color}"></span><span class="ln">${esc(sp.name)}</span><span class="lc">${td.done}/${td.total}</span><b>${td.pct}%</b></a>`).join('')}</div>
       <div class="score-foot"><span><b>${tr.avg === null ? '–' : tr.avg + '%'}</b> 7-day avg</span><span><b>${tr.streak}</b> day streak</span></div>
     </div>
   </section>` : '';
@@ -726,7 +733,6 @@ function viewHome() {
       <div class="eyebrow">${esc(fmt(date, { weekday: 'long', month: 'long', day: 'numeric' }))}</div>
       <h1>${greeting()}</h1>
       <p>${all.total ? `<b>${all.done} of ${all.total}</b> required tasks done today${all.pct !== null ? `, <b>${all.pct}%</b>` : ''}.` : 'Add your first tasks to get started.'}</p>
-      <div class="row" style="margin-top:22px"><button class="btn" data-act="customize">Customize</button></div>
     </div>
     <div class="home-grid">
       ${score}
@@ -803,7 +809,8 @@ function viewSpace(sp) {
   const ed = ui.editing, goal = goalOf(sp);
   const tr = trend(sp.id), td = spaceDay(sp.id, ui.date);
   const head = ed
-    ? `<div class="head"><input type="color" class="color-in" data-f="spaceColor" data-space="${sp.id}" value="${spaceColor(sp)}" aria-label="Ring color" title="Ring color"><select class="sel" data-f="spaceIcon" data-space="${sp.id}" aria-label="Icon">${SPACE_ICONS.map(n => `<option value="${n}"${iconName(sp) === n ? ' selected' : ''}>${n[0].toUpperCase() + n.slice(1)}</option>`).join('')}</select><input class="txt-in" style="font-size:24px;font-weight:700" data-f="spaceName" data-space="${sp.id}" value="${esc(sp.name)}" aria-label="Space name"></div>
+    ? `<div class="head"><span class="icon-now" style="--sc:${spaceColor(sp)}">${ico(iconName(sp), 26)}</span><input class="txt-in" style="font-size:24px;font-weight:700" data-f="spaceName" data-space="${sp.id}" value="${esc(sp.name)}" aria-label="Space name"></div>
+       <div class="icon-pick" role="radiogroup" aria-label="Icon">${SPACE_ICONS.map(n => `<button class="icon-opt${iconName(sp) === n ? ' on' : ''}" data-act="setIcon" data-space="${sp.id}" data-v="${n}" role="radio" aria-checked="${iconName(sp) === n}" aria-label="${n}" title="${n}">${ico(n, 20)}</button>`).join('')}</div>
        <div class="row" style="margin-bottom:16px"><label class="field-inline">Daily goal <select class="sel" data-f="spaceGoal" data-space="${sp.id}">${[50, 60, 70, 80, 90, 100].map(g => `<option value="${g}"${g === goal ? ' selected' : ''}>${g}%</option>`).join('')}</select></label><span class="badge">Mark items Optional and they will not count against your goal</span></div>`
     : `<a class="back" href="#/home">‹ Home</a>
        <div class="head"><div class="grow"><h1 class="with-icon">${ico(iconName(sp), 36)}${esc(sp.name)}</h1><div class="sub">${esc(fmt(ui.date, { weekday: 'long', month: 'long', day: 'numeric' }))}</div></div></div>
@@ -813,13 +820,13 @@ function viewSpace(sp) {
          <div class="card stat"><b>${tr.streak}</b><span>day streak</span></div>
        </div>`;
   const actions = `<div class="row" style="margin-bottom:16px">
-    <button class="btn${ed ? ' primary' : ''}" data-act="toggleEdit">${ed ? 'Done editing' : 'Customize'}</button>
+    <button class="btn${ed ? ' primary' : ''}" data-act="toggleEdit">${ed ? 'Done editing' : 'Edit'}</button>
     ${ed ? `<button class="btn" data-act="addList" data-space="${sp.id}">New list</button><button class="btn" data-act="templates" data-space="${sp.id}">Add template</button><button class="btn danger" data-act="delSpace" data-space="${sp.id}">Delete space</button>`
          : `<button class="btn" data-act="summary" data-space="${sp.id}">Copy day summary</button><button class="btn" data-act="shareSpace" data-space="${sp.id}">Share</button>`}
   </div>`;
   const body = lists.length
     ? (ed ? lists.map(renderListEditor).join('') : `<div class="lists">${lists.map(l => renderListCard(l, ui.date)).join('')}</div>`)
-    : `<div class="card"><div class="empty" style="padding-top:18px">Empty space. Hit Customize, then add a list or start from a template.</div></div>`;
+    : `<div class="card"><div class="empty" style="padding-top:18px">Empty space. Hit Edit, then add a list or start from a template.</div></div>`;
   return head + (ed ? '' : linksView(sp) + dateNav(false) + pastBanner()) + actions + (ed ? linksEditor(sp) : '') + body;
 }
 
@@ -893,7 +900,7 @@ function appearanceHTML() {
 }
 
 function customizeHTML() {
-  return `<h2>Customize</h2><p>Arrange Home and choose how everything looks.</p>
+  return `<h2>Style</h2><p>Arrange Home and choose how everything looks.</p>
     <h4 class="sheet-h">Spaces on Home</h4>
     ${state.spaces.map((sp, i) => `<div class="sheet-row">${ico(iconName(sp), 18)}<span class="grow">${esc(sp.name)}</span>
       ${sp.color ? `<button class="icon-btn" data-act="colorReset" data-space="${sp.id}" title="Back to the default color" aria-label="Reset color">↺</button>` : ''}<input type="color" class="color-in" data-f="spaceColor" data-space="${sp.id}" value="${spaceColor(sp)}" aria-label="${esc(sp.name)} ring color" title="Ring color">
@@ -919,9 +926,9 @@ function viewSettings() {
     <div class="head"><div class="grow"><h1>Settings</h1><div class="sub">Make it yours, then share it.</div></div></div>
     <section class="card">
       <div class="setting"><h4>Your name</h4><p>Used in the greeting.</p><input class="txt-in" style="max-width:280px;width:100%" data-f="name" value="${esc(state.name)}" placeholder="Name"></div>
+      <div class="setting"><h4>Style</h4><p>Theme, background, font, accent and ring colors, plus which spaces and widgets show on Home.</p><button class="btn primary" data-act="style">Open Style</button></div>
       <div class="setting"><h4>Spaces and templates</h4><p>Spin up a new space from a template, or start blank.</p><button class="btn" data-act="newSpace">＋ New space</button></div>
     </section>
-    ${appearanceHTML()}
     <section class="card">
       <div class="setting"><h4>Share your setup</h4><p>Creates a link or text that lets someone else get your spaces and lists as their own starting point. Your checked items and notes are never included.</p><button class="btn primary" data-act="shareAll">Share my setup</button> <button class="btn" data-act="importOpen">Import a setup</button></div>
       <div class="setting"><h4>Backup</h4><p>Everything is stored on this device only. Export a backup to move it to another device or keep it safe.</p><button class="btn" data-act="exportAll">Export backup</button> <button class="btn" data-act="restoreOpen">Restore backup</button></div>
@@ -1072,7 +1079,8 @@ document.addEventListener('click', e => {
     case 'setTheme': state.theme[d.k] = d.v; save(); applyTheme(); render(); refreshSheet(); break;
     case 'removeBg': localStorage.removeItem(BG_KEY); if (state.theme.bg === 'image') state.theme.bg = 'none'; state.theme.imgLuma = null; save(); applyTheme(); render(); refreshSheet(); break;
     case 'toggleOptional': if (item.optional) delete item.optional; else item.optional = true; save(); render(); break;
-    case 'customize': openCustomize(); break;
+    case 'style': openCustomize(); break;
+    case 'setIcon': spaceById(d.space).icon = d.v; save(); render(); break;
     case 'linkAdd': if (addLink(d.space, $('#ql-title').value, $('#ql-url').value)) break; break;
     case 'linkSuggest': addLink(d.space, d.t, d.u); break;
     case 'linkDel': { const sp = spaceById(d.space); sp.links = sp.links.filter(l => l.id !== d.link); save(); render(); break; }
@@ -1128,10 +1136,15 @@ document.addEventListener('click', e => {
     case 'useTemplate': {
       const t = TEMPLATES.find(x => x.id === d.tpl);
       let sid = d.space;
-      if (!sid) { sid = uid(); state.spaces.push({ id: sid, name: t.id === 'blank' ? 'New space' : t.name, icon: t.icon }); }
+      if (!sid) {
+        // A new space gets the first ring color nobody else is using, so it never matches an existing space.
+        const used = new Set(state.spaces.map(spaceColor));
+        sid = uid();
+        state.spaces.push({ id: sid, name: t.id === 'blank' ? 'New space' : t.name, icon: t.icon, links: [], color: SPACE_COLORS.find(c => !used.has(c)) || SPACE_COLORS[state.spaces.length % SPACE_COLORS.length] });
+      }
       state.lists.push(...instantiateLists(sid, t.lists));
       save(); closeModal();
-      if (d.space) render(); else { ui.editing = t.id === 'blank'; location.hash = '#/space/' + sid; }
+      if (d.space) render(); else { ui.editNext = t.id === 'blank' ? sid : null; location.hash = '#/space/' + sid; }
       break;
     }
     case 'delSpace': {
@@ -1308,7 +1321,9 @@ document.addEventListener('pointerup', () => {
 function route() {
   const h = location.hash.replace(/^#\/?/, '') || 'home';
   const [view, arg] = h.split('/');
-  if (view !== 'space' || ui.arg !== arg) ui.editing = false;
+  if (view === 'space' && ui.editNext === arg) ui.editing = true; // a brand-new blank space opens ready to edit
+  else if (view !== 'space' || ui.arg !== arg) ui.editing = false;
+  ui.editNext = null;
   ui.view = view; ui.arg = arg || null;
   if (view === 'home') ui.date = todayKey();
   render();

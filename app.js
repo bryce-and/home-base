@@ -514,6 +514,7 @@ function render() {
   }
   $('#main').innerHTML = html;
   $('#main').dataset.view = ui.view;
+  $('#main').classList.toggle('arranging', !!ui.arrange && ui.view === 'home');
   Glass.refresh();
   Motion.apply();
   if (ui.focus) { const el = $(ui.focus); if (el) el.focus(); ui.focus = null; }
@@ -685,7 +686,7 @@ function viewHome() {
   const colorOf = i => spaceColor(vis[i]);
   const tiles = vis.map((sp, idx) => {
     const td = spaceDay(sp.id, date), t = trend(sp.id), goal = goalOf(sp), pct = td.pct;
-    return `<a class="tile glass" style="--sc:${colorOf(idx)}" data-glass data-bezel="30" data-scale="64" data-gblur="5" href="#/space/${sp.id}">
+    return `<a class="tile glass" data-sort="${sp.id}" style="--sc:${colorOf(idx)}" data-glass data-bezel="30" data-scale="64" data-gblur="5" href="#/space/${sp.id}">
       <div class="tile-top"><span class="tile-ico">${ico(iconName(sp), 20)}</span>${esc(sp.name)}<span class="tile-go">›</span></div>
       <div><div class="big">${pct === null ? '–' : pct + '<small>%</small>'}</div>
         <div class="cap">${td.total ? `${td.done} of ${td.total} required done today` : 'Nothing required today'}</div></div>
@@ -734,11 +735,19 @@ function viewHome() {
       <h1>${greeting()}</h1>
       <p>${all.total ? `<b>${all.done} of ${all.total}</b> required tasks done today${all.pct !== null ? `, <b>${all.pct}%</b>` : ''}.` : 'Add your first tasks to get started.'}</p>
     </div>
-    <div class="home-grid">
-      ${score}
-      <div class="tiles">${tiles}<button class="tile ghost" data-act="newSpace">${ico('plus', 22)}&nbsp;New space</button></div>
-      ${upNext}${journalWidget(date)}${photoWidget()}${pulse}
-    </div>`;
+    <div class="home-grid">${homeSections({
+      score,
+      tiles: `<div class="tiles">${tiles}<button class="tile ghost" data-act="newSpace">${ico('plus', 22)}&nbsp;New space</button></div>`,
+      upnext: upNext, journal: journalWidget(date), photo: photoWidget(), pulse,
+    })}</div>
+    ${ui.arrange ? '<button class="btn primary arrange-done" data-act="arrangeDone">Done</button>' : ''}`;
+}
+
+// Home sections in the order the user arranged them. Anything new or never arranged goes at the end.
+function homeSections(secs) {
+  const saved = (state.home.order || []).filter(k => k in secs);
+  return [...saved, ...Object.keys(secs).filter(k => !saved.includes(k))]
+    .filter(k => secs[k]).map(k => `<div class="sec" data-sort="${k}">${secs[k]}</div>`).join('');
 }
 
 /* ----- Today ----- */
@@ -1083,6 +1092,7 @@ document.addEventListener('click', e => {
     case 'removeBg': localStorage.removeItem(BG_KEY); if (state.theme.bg === 'image') state.theme.bg = 'none'; state.theme.imgLuma = null; save(); applyTheme(); render(); refreshSheet(); break;
     case 'toggleOptional': if (item.optional) delete item.optional; else item.optional = true; save(); render(); break;
     case 'style': openCustomize(); break;
+    case 'arrangeDone': ui.arrange = false; render(); break;
     case 'iconMenu': ui.iconMenu = !ui.iconMenu; render(); break;
     case 'setIcon': spaceById(d.space).icon = d.v; ui.iconMenu = false; save(); render(); break;
     case 'linkAdd': if (addLink(d.space, $('#ql-title').value, $('#ql-url').value)) break; break;
@@ -1321,13 +1331,76 @@ document.addEventListener('pointerup', () => {
   photoDrag = null;
 });
 
+/* Arrange Home like an iPhone home screen. Hold a section or a space tile to make everything jiggle, then
+   drag to reorder. While arranging, a press drags straight away and taps do nothing until Done. */
+const Arrange = (() => {
+  const HOLD = 450, SLOP = 8;
+  let press = null, drag = null, swallowClick = false;
+  const blocked = t => t.closest('input, textarea, select, [contenteditable], .photo-frame.repo, .arrange-done');
+  const enter = () => { ui.arrange = true; $('#main').classList.add('arranging'); if (!$('.arrange-done')) $('#main').insertAdjacentHTML('beforeend', '<button class="btn primary arrange-done" data-act="arrangeDone">Done</button>'); navigator.vibrate?.(12); };
+
+  function start(item, e) {
+    const r = item.getBoundingClientRect();
+    drag = { item, offX: e.clientX - r.left, offY: e.clientY - r.top };
+    item.classList.add('dragging');
+    move(e);
+  }
+  function move(e) {
+    const { item } = drag;
+    item.style.transform = '';
+    const r = item.getBoundingClientRect();
+    item.style.transform = `translate(${e.clientX - drag.offX - r.left}px, ${e.clientY - drag.offY - r.top}px) scale(1.03)`;
+    // Find the piece under the finger at the same level as the one being moved (a section, or a tile among tiles).
+    let over = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-sort]');
+    while (over && over.parentElement !== item.parentElement) over = over.parentElement?.closest('[data-sort]');
+    if (over && over !== item) {
+      const sibs = [...item.parentElement.children];
+      over.parentElement.insertBefore(item, sibs.indexOf(over) > sibs.indexOf(item) ? over.nextSibling : over);
+    }
+  }
+  function commit() {
+    const { item } = drag, box = item.parentElement;
+    item.classList.remove('dragging'); item.style.transform = '';
+    const keys = [...box.querySelectorAll(':scope > [data-sort]')].map(x => x.dataset.sort);
+    if (box.classList.contains('home-grid')) state.home.order = keys;
+    else { // space tiles: visible spaces take the new order, hidden ones keep their place after them
+      const byId = Object.fromEntries(state.spaces.map(s => [s.id, s]));
+      state.spaces = [...keys.map(k => byId[k]), ...state.spaces.filter(s => !keys.includes(s.id))];
+    }
+    save(); drag = null;
+  }
+
+  document.addEventListener('pointerdown', e => {
+    if (ui.view !== 'home' || e.button > 0 || blocked(e.target)) return;
+    const item = e.target.closest('#main [data-sort]'); if (!item) return;
+    if (ui.arrange) { e.preventDefault(); swallowClick = true; start(item, e); return; }
+    press = { item, x: e.clientX, y: e.clientY, timer: setTimeout(() => { swallowClick = true; enter(); start(item, { clientX: press.x, clientY: press.y }); press = null; }, HOLD) };
+  });
+  document.addEventListener('pointermove', e => {
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > SLOP) { clearTimeout(press.timer); press = null; }
+    if (press) { press.x = e.clientX; press.y = e.clientY; }
+    if (drag) move(e);
+  });
+  const end = () => { if (press) { clearTimeout(press.timer); press = null; } if (drag) commit(); };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+  // Once a drag is live on a phone, the page must not scroll under the finger.
+  document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, { passive: false });
+  document.addEventListener('contextmenu', e => { if (press || drag || ui.arrange) e.preventDefault(); });
+  // Taps never open a tile or press a button while arranging, or right after a hold.
+  document.addEventListener('click', e => {
+    if (e.target.closest('.arrange-done')) { swallowClick = false; return; }
+    if (swallowClick || ui.arrange) { e.preventDefault(); e.stopImmediatePropagation(); swallowClick = false; }
+  }, true);
+})();
+
 /* ---------- routing + boot ---------- */
 function route() {
   const h = location.hash.replace(/^#\/?/, '') || 'home';
   const [view, arg] = h.split('/');
   if (view === 'space' && ui.editNext === arg) ui.editing = true; // a brand-new blank space opens ready to edit
   else if (view !== 'space' || ui.arg !== arg) ui.editing = false;
-  ui.editNext = null; ui.iconMenu = false;
+  ui.editNext = null; ui.iconMenu = false; ui.arrange = false;
   ui.view = view; ui.arg = arg || null;
   if (view === 'home') ui.date = todayKey();
   render();

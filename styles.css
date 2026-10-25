@@ -545,6 +545,27 @@ html[data-theme="ink"], html[data-theme="auto"].sys-dark, html[data-theme="glass
 :root .icon-btn:hover { background: var(--lg-tint); box-shadow: inset 0 1px 0 var(--lg-hi); }
 .modal { border: 1px solid var(--lg-edge); }
 
+/* ---------- Home sections: wrappers that can be rearranged ---------- */
+.home-grid > .sec { min-width: 0; display: flex; flex-direction: column; -webkit-touch-callout: none; }
+.home-grid > .sec > * { margin: 0; flex: 1; }
+.home-grid > .sec > .photo { flex: none; }
+@media (min-width: 1024px) { .home-grid > .sec[data-sort="score"], .home-grid > .sec[data-sort="tiles"] { grid-column: 1 / -1; } }
+.tile { -webkit-touch-callout: none; }
+
+/* Arrange mode: everything jiggles, the held piece lifts and follows the finger */
+@keyframes jiggle { 0% { transform: rotate(-.45deg); } 100% { transform: rotate(.45deg); } }
+@keyframes jiggleSmall { 0% { transform: rotate(-1deg); } 100% { transform: rotate(1deg); } }
+main.arranging { user-select: none; -webkit-user-select: none; }
+main.arranging .home-grid > .sec { animation: jiggle .26s ease-in-out infinite alternate; touch-action: none; cursor: grab; }
+main.arranging .home-grid > .sec:nth-child(even) { animation-delay: -.13s; }
+main.arranging .tiles > [data-sort] { animation: jiggleSmall .22s ease-in-out infinite alternate; touch-action: none; }
+main.arranging .tiles > [data-sort]:nth-child(even) { animation-delay: -.11s; }
+main.arranging .home-grid > .sec .score { transform: none; }
+main [data-sort].dragging { position: relative; z-index: 35; animation: none !important; pointer-events: none; transition: none; filter: drop-shadow(0 24px 40px rgba(0,0,0,.4)); cursor: grabbing; }
+.arrange-done { position: fixed; z-index: 45; top: 20px; right: max(20px, calc(50% - 580px)); box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+@media (max-width: 760px) { .arrange-done { top: calc(14px + env(safe-area-inset-top)); right: 16px; } }
+@media (prefers-reduced-motion: reduce) { main.arranging [data-sort] { outline: 2px dashed var(--accent); outline-offset: 4px; } }
+
 /* Delete affordances */
 .del-task { margin-top: 8px; }
 .entry-head .icon-btn { margin-left: 8px; }

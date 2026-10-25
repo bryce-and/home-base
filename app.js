@@ -556,11 +556,12 @@ function renderItem(list, item, date) {
     <div class="body">
       <div class="txt" data-act="note" data-item="${item.id}">${esc(item.text)}${tag}</div>
       ${open
-        ? `<textarea class="notebox" data-f="note" data-list="${list.id}" data-item="${item.id}" placeholder="What are you doing, what did you decide, who needs to know?">${esc(e?.note || '')}</textarea>`
+        ? `<textarea class="notebox" data-f="note" data-list="${list.id}" data-item="${item.id}" placeholder="What are you doing, what did you decide, who needs to know?">${esc(e?.note || '')}</textarea><button class="btn small danger del-task" data-act="delTask" data-list="${list.id}" data-item="${item.id}">Delete task</button>`
         : e?.note ? `<div class="note">${esc(e.note)}</div>` : ''}
     </div>
     ${CALENDAR && item.time ? `<button class="icon-btn" data-act="gcal" data-list="${list.id}" data-item="${item.id}" title="Add to Google Calendar" aria-label="Add to Google Calendar">${ico('calendar', 16)}</button>` : ''}
     <button class="icon-btn" data-act="note" data-item="${item.id}" title="Add a note" aria-label="Note">✎</button>
+    ${list.id === 'inbox' ? `<button class="icon-btn danger" data-act="delTask" data-list="inbox" data-item="${item.id}" title="Delete" aria-label="Delete ${esc(item.text)}">✕</button>` : ''}
   </div>`;
 }
 
@@ -666,7 +667,7 @@ function journalAllModal() {
   const keys = Object.keys(state.journal).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k) && state.journal[k] && (!f || (state.jtags[k] || []).includes(f))).sort().reverse();
   modal(`<h2>Journal</h2><p>${keys.length ? 'Every entry you have written. Edit any of them here.' : f ? 'No entries with that tag.' : 'No entries yet. Write one on Home and it will show up here.'}</p>
     ${Object.keys(counts).length ? `<div class="opt-row" style="margin-bottom:6px">${Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<button class="chip small${f === t ? ' on' : ''}" data-act="tagFilter" data-tag="${esc(t)}">#${esc(t)} ${n}</button>`).join('')}</div>` : ''}
-    ${keys.map(k => `<div class="entry"><div class="entry-head"><b>${esc(fmt(k, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }))}</b>${(state.jtags[k] || []).length ? `<span>${state.jtags[k].map(t => '#' + esc(t)).join(' ')}</span>` : ''}</div><textarea data-f="journal" data-key="${k}">${esc(state.journal[k])}</textarea></div>`).join('')}
+    ${keys.map(k => `<div class="entry"><div class="entry-head"><b>${esc(fmt(k, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }))}</b>${(state.jtags[k] || []).length ? `<span>${state.jtags[k].map(t => '#' + esc(t)).join(' ')}</span>` : ''}<button class="icon-btn danger" data-act="journalDel" data-key="${k}" title="Delete entry" aria-label="Delete entry">✕</button></div><textarea data-f="journal" data-key="${k}">${esc(state.journal[k])}</textarea></div>`).join('')}
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary" data-act="closeModal">Done</button></div>`);
 }
 
@@ -788,7 +789,7 @@ function viewWeek() {
   const label = `${fmt(ws, { month: 'short', day: 'numeric' })} to ${fmt(addDays(ws, 6), { month: 'short', day: 'numeric' })}`;
   const jk = 'w:' + ws;
   return `
-    <div class="head"><div class="grow"><h1>Week</h1><div class="sub">${esc(label)}</div></div></div>
+    <div class="head"><div class="grow"><h1>Week</h1><div class="sub">${esc(label)}</div></div><button class="btn" data-act="weekSummary">Copy week summary</button></div>
     ${dateNav(true)}
     <div class="weekgrid">${grid}</div>
     ${wl || '<div class="card"><div class="empty">No weekly lists yet. Add one in any space and set it to "Weekly".</div></div>'}
@@ -898,7 +899,8 @@ function customizeHTML() {
       ${sp.color ? `<button class="icon-btn" data-act="colorReset" data-space="${sp.id}" title="Back to the default color" aria-label="Reset color">↺</button>` : ''}<input type="color" class="color-in" data-f="spaceColor" data-space="${sp.id}" value="${spaceColor(sp)}" aria-label="${esc(sp.name)} ring color" title="Ring color">
       <button class="icon-btn" data-act="moveSpace" data-space="${sp.id}" data-n="-1" aria-label="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
       <button class="icon-btn" data-act="moveSpace" data-space="${sp.id}" data-n="1" aria-label="Move down"${i === state.spaces.length - 1 ? ' disabled' : ''}>↓</button>
-      <button class="chip small${sp.hidden ? '' : ' on'}" data-act="toggleSpace" data-space="${sp.id}">${sp.hidden ? 'Hidden' : 'Shown'}</button></div>`).join('')}
+      <button class="chip small${sp.hidden ? '' : ' on'}" data-act="toggleSpace" data-space="${sp.id}">${sp.hidden ? 'Hidden' : 'Shown'}</button>
+      <button class="icon-btn danger" data-act="delSpace" data-space="${sp.id}" title="Delete space" aria-label="Delete ${esc(sp.name)}">✕</button></div>`).join('')}
     <h4 class="sheet-h">Widgets</h4>
     <div class="opt-row"><button class="chip${state.home.upNext ? ' on' : ''}" data-act="toggleWidget" data-k="upNext">Up next</button><button class="chip${state.home.pulse ? ' on' : ''}" data-act="toggleWidget" data-k="pulse">Last 7 days</button><button class="chip${state.home.journal ? ' on' : ''}" data-act="toggleWidget" data-k="journal">Journal</button><button class="chip${state.home.photo ? ' on' : ''}" data-act="toggleWidget" data-k="photo">Photo</button></div>
     <h4 class="sheet-h">Look</h4>
@@ -998,6 +1000,48 @@ function summaryFor(spaceId, date) {
   return lines.join('\n');
 }
 
+// Week summary. Sections are every visible space plus the reflection, each switchable, so new spaces show up here automatically.
+ui.wsOff = new Set();
+const weekSections = ws => [...state.spaces.filter(s => !s.hidden).map(s => ({ id: s.id, name: s.name })),
+  ...(state.journal['w:' + ws] ? [{ id: 'reflection', name: 'Week reflection' }] : [])];
+const oneLine = t => t.replace(/\n+/g, ' ');
+function weekSummary(ws, off) {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i)), created = state.created || todayKey();
+  const out = [`Week of ${fmt(ws, { month: 'short', day: 'numeric' })} to ${fmt(addDays(ws, 6), { month: 'short', day: 'numeric' })}`];
+  for (const sp of state.spaces.filter(x => !x.hidden && !off.has(x.id))) {
+    const pcts = days.filter(d => d >= created).map(d => spaceDay(sp.id, d).pct).filter(v => v !== null);
+    const avg = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
+    out.push('', `${sp.name.toUpperCase()}${avg === null ? '' : ` (${avg}% daily average, goal ${goalOf(sp)}%)`}`);
+    const done = [], open = [];
+    for (const l of state.lists.filter(x => x.spaceId === sp.id && x.cadence !== 'once')) {
+      if (l.cadence === 'weekly') {
+        for (const i of l.items) {
+          const e = entry(l, i, ws);
+          (e?.done ? done : open).push(`- ${i.text}${e?.note ? ': ' + oneLine(e.note) : ''}`);
+        }
+        continue;
+      }
+      for (const i of l.items) {
+        const hits = days.filter(d => itemsFor(l, d).includes(i) && entry(l, i, d)?.done);
+        if (!hits.length) continue;
+        const notes = hits.filter(d => entry(l, i, d).note).map(d => `${fmt(d, { weekday: 'short' })}: ${oneLine(entry(l, i, d).note)}`);
+        done.push(`- ${i.text} (${hits.length}/${days.filter(d => itemsFor(l, d).includes(i)).length} days)${notes.length ? ' ' + notes.join('; ') : ''}`);
+      }
+    }
+    out.push('Done:', ...(done.length ? done : ['- nothing checked off']));
+    if (open.length) out.push('Weekly items still open:', ...open);
+  }
+  if (!off.has('reflection') && state.journal['w:' + ws]) out.push('', 'WEEK REFLECTION', state.journal['w:' + ws]);
+  return out.join('\n');
+}
+function weekSummaryModal() {
+  const ws = weekStart(ui.date);
+  modal(`<h2>Week summary</h2><p>Choose what to include, then copy it into your weekly update.</p>
+    <div class="opt-row" id="ws-chips" style="margin-bottom:12px">${weekSections(ws).map(x => `<button class="chip${ui.wsOff.has(x.id) ? '' : ' on'}" data-act="wsToggle" data-id="${esc(x.id)}" aria-pressed="${!ui.wsOff.has(x.id)}">${esc(x.name)}</button>`).join('')}</div>
+    <textarea id="wsum-text" readonly style="font-family:inherit;font-size:14px;min-height:280px">${esc(weekSummary(ws, ui.wsOff))}</textarea>
+    <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn" data-act="closeModal">Close</button><button class="btn primary" data-act="copyEl" data-el="wsum-text">Copy</button></div>`);
+}
+
 /* ---------- events ---------- */
 function moveIn(arr, idx, n) {
   const j = idx + n;
@@ -1060,6 +1104,10 @@ document.addEventListener('click', e => {
       if (days.size) item.days = [...days]; else delete item.days;
       save(); render(); break;
     }
+    case 'delTask': list.items = list.items.filter(i => i.id !== item.id); ui.openNotes.delete(item.id); save(); render(); toast('Task deleted'); break;
+    case 'journalDel':
+      if (confirm('Delete this journal entry and its tags?')) { delete state.journal[d.key]; delete state.jtags[d.key]; save(); journalAllModal(); render(); }
+      break;
     case 'delItem': list.items = list.items.filter(i => i.id !== item.id); save(); render(); break;
     case 'moveItem': moveIn(list.items, list.items.indexOf(item), Number(d.n)); save(); render(); break;
     case 'addList': {
@@ -1091,7 +1139,8 @@ document.addEventListener('click', e => {
       if (confirm(`Delete "${sp.name}" and all its lists? This cannot be undone.`)) {
         state.spaces = state.spaces.filter(s => s.id !== sp.id);
         state.lists = state.lists.filter(l => l.spaceId !== sp.id);
-        save(); ui.editing = false; location.hash = '#/home';
+        save(); ui.editing = false;
+        if (location.hash.includes(sp.id)) location.hash = '#/home'; else { render(); refreshSheet(); }
       }
       break;
     }
@@ -1113,6 +1162,12 @@ document.addEventListener('click', e => {
       if (confirm('Erase everything on this device? This cannot be undone. Export a backup first if you are unsure.')) { state = ensureInbox(seed()); save(); applyTheme(); toast('Reset'); render(); }
       break;
     case 'copyEl': copyText($('#' + d.el).value); break;
+    case 'weekSummary': weekSummaryModal(); break;
+    case 'wsToggle': {
+      if (ui.wsOff.has(d.id)) ui.wsOff.delete(d.id); else ui.wsOff.add(d.id);
+      const on = !ui.wsOff.has(d.id); el.classList.toggle('on', on); el.setAttribute('aria-pressed', on);
+      $('#wsum-text').value = weekSummary(weekStart(ui.date), ui.wsOff); break;
+    }
     case 'closeModal': closeModal(); break;
   }
 });

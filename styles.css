@@ -506,3 +506,7 @@ html[data-font="helvetica"] .big,
 html[data-font="helvetica"] .score-center b { font-weight: 900; -webkit-text-stroke: .03em currentColor; letter-spacing: -.055em; }
 html[data-font="helvetica"] .big small,
 html[data-font="helvetica"] .score-center b small { font-weight: 900; -webkit-text-stroke: 0; }
+
+/* Delete affordances */
+.del-task { margin-top: 8px; }
+.entry-head .icon-btn { margin-left: 8px; }
